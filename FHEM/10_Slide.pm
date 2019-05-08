@@ -66,51 +66,19 @@ sub Slide_Undef($$)
   return;
 }
 
-sub Slide_Set($@)
-{
-  my ($hash,$name,@aa) = @_;
-  my ($cmd,@args) = @aa;
-  return if (IsDisabled($name) && $cmd ne "?");
-  return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
-  my $para = "login:noArg logout:noArg password";
-  if ($cmd eq "password")
-  {
-    return "$cmd not implemented yet...";
-  }
-  elsif ($cmd eq "login")
-  {
-    my $param = {
-      url       => "https://api.goslide.io/api/auth/login",
-      timeout   => 5,
-      hash      => $hash,
-      method    => "POST",
-      data      => "{\"email\":\"".AttrVal($name,"email","")."\",\"password\": \"".AttrVal($name,"password","")."\"}",
-      header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest",
-      callback  => \&Slide_ParseLogin
-    };
-    return HttpUtils_NonblockingGet($param);
-  }
-  elsif ($cmd eq "logout")
-  {
-    my $param = {
-      url       => "https://api.goslide.io/api/auth/logout",
-      timeout   => 5,
-      hash      => $hash,
-      method    => "POST",
-      header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest\r\nAuthorization: ".ReadingsVal($name,".token_type","")." ".ReadingsVal($name,".access_token",""),
-      callback  => \&Slide_ParseLogout
-    };
-    return HttpUtils_NonblockingGet($param);
-  }
-  return $para;
-}
-
 sub Slide_Get($@)
 {
   my ($hash,$name,@aa) = @_;
   my ($cmd,@args) = @aa;
   return if (IsDisabled($name) && $cmd ne "?");
-  my $para =  "household:noArg slides:noArg update:noArg";
+  my @par;
+  if (ReadingsVal($name,".access_token",undef))
+  {
+    push @par,"update:noArg";
+    push @par,"household:noArg";
+    push @par,"slides:noArg";
+  }
+  my $para = join(" ",@par);
   return "get $name needs one parameter: $para" if (!$cmd);
   if ($cmd eq "update")
   {
@@ -118,34 +86,60 @@ sub Slide_Get($@)
   }
   elsif ($cmd eq "household")
   {
-    return "Not logged in, please login first!" if (!ReadingsVal($name,".access_token",undef));
-    my $param = {
-      url       => "https://api.goslide.io/api/households",
-      timeout   => 5,
-      hash      => $hash,
-      method    => "GET",
-      header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest\r\nAuthorization: ".ReadingsVal($name,".token_type","")." ".ReadingsVal($name,".access_token",""),
-      callback  => \&Slide_ParseHousehold
-    };
-    return HttpUtils_NonblockingGet($param);
+    return Slide_request($hash,"https://api.goslide.io/api/households","Slide_ParseHousehold");
   }
   elsif ($cmd eq "slides")
   {
-    return "Not logged in, please login first!" if (!ReadingsVal($name,".access_token",undef));
-    my $param = {
-      url       => "https://api.goslide.io/api/slides/overview",
-      timeout   => 5,
-      hash      => $hash,
-      method    => "GET",
-      header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest\r\nAuthorization: ".ReadingsVal($name,".token_type","")." ".ReadingsVal($name,".access_token",""),
-      callback  => \&Slide_ParseSlides
-    };
-    return HttpUtils_NonblockingGet($param);
+    return Slide_request($hash,"https://api.goslide.io/api/slides/overview","Slide_ParseSlides");
   }
   else
   {
-    return "Unknown argument $cmd for $name, choose one of $para";
+    return $para?"Unknown argument $cmd for $name, choose one of $para":undef;
   }
+}
+
+sub Slide_Set($@)
+{
+  my ($hash,$name,@aa) = @_;
+  my ($cmd,@args) = @aa;
+  return if (IsDisabled($name) && $cmd ne "?");
+  return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
+  my @par;
+  push @par,"password";
+  push @par,"login:noArg" if (!ReadingsVal($name,".access_token",undef));
+  push @par,"logout:noArg" if (ReadingsVal($name,".access_token",undef));
+  my $para = join(" ",@par);
+  if ($cmd eq "password")
+  {
+    return "$cmd not implemented yet...";
+  }
+  elsif ($cmd eq "login")
+  {
+    return Slide_request($hash,"https://api.goslide.io/api/auth/login","Slide_ParseLogin","{\"email\":\"".AttrVal($name,"email","")."\",\"password\": \"".AttrVal($name,"password","")."\"}","POST");
+  }
+  elsif ($cmd eq "logout")
+  {
+    return Slide_request($hash,"https://api.goslide.io/api/auth/logout","Slide_ParseLogout",undef,"POST");
+  }
+  return $para;
+}
+
+sub Slide_request($$$;$$)
+{
+  my ($hash,$url,$callback,$data,$method) = @_;
+  $method = "GET" if (!$method);
+  my $name = $hash->{NAME};
+  my $param = {
+    url       => $url,
+    timeout   => 5,
+    hash      => $hash,
+    method    => $method,
+    header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest",
+    callback  => \&$callback
+  };
+  $param->{header} .= "\r\nAuthorization: ".ReadingsVal($name,".token_type","")." ".ReadingsVal($name,".access_token","") if (ReadingsVal($name,".access_token",undef));
+  $param->{data} = $data if ($data);
+  return HttpUtils_NonblockingGet($param);
 }
 
 sub Slide_ParseLogin($)
@@ -171,7 +165,9 @@ sub Slide_ParseLogin($)
       readingsBulkUpdate($hash,".household_id",$dec->{household_id});
       readingsBulkUpdate($hash,"state","login successful");
       readingsEndUpdate($hash,1);
-      return CommandGet(undef,"$name household");
+      CommandGet(undef,"$name household");
+      CommandGet(undef,"$name slides");
+      return;
     }
     elsif ($dec->{message})
     {
