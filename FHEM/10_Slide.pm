@@ -117,11 +117,18 @@ sub Slide_Set($@)
   push @par,"password";
   push @par,"login:noArg" if (!$token);
   push @par,"logout:noArg" if ($token);
+  push @par,"holiday:0,1" if ($token);
   if ($cmd eq "password")
   {
     return "$cmd needs a value..." if (!$value);
-    CommandAttr(undef,"$name password $value");
-    return undef;
+    $err = setKeyValue("Slide_".$name."_sec",$value);
+    if (!$err)
+    {
+      CommandSet(undef,"$name logout") if ($token);
+      CommandSet(undef,"$name login");
+      return undef;
+    }
+    return $err;
   }
   elsif ($cmd eq "login")
   {
@@ -135,7 +142,18 @@ sub Slide_Set($@)
   {
     return Slide_request($hash,"https://api.goslide.io/api/auth/logout","Slide_ParseLogout",undef,"POST");
   }
-  return join(" ",@par);
+  elsif ($cmd eq "holiday")
+  {
+    my $mode = $value ? "true" : "false";
+    my $data = ReadingsVal($name,"household_holiday_routines","");
+    $data =~ s/"/\\"/g;
+    $data = "{ \\\"holiday_mode\\\": $mode, \\\"data\\\": ".$data." }";
+    $data =~ s/\\{2}/\\\\\\"/g;
+    Debug $data;
+    return Slide_request($hash,"https://api.goslide.io/api/households/holiday_mode","Slide_ParseHoliday",$data,"POST");
+  }
+  my $para = join(" ",@par);
+  return $para ? "Unknown argument $cmd for $name, choose one of $para" : undef;
 }
 
 sub Slide_request($$$;$$)
@@ -296,6 +314,24 @@ sub Slide_ParseSlides($)
     {
       readingsSingleUpdate($hash,"state","ERROR - unknown error",1);
     }
+  }
+}
+
+sub Slide_ParseHoliday($)
+{
+  my ($param,$err,$data) = @_;
+  my $hash = $param->{hash};
+  my $name = $hash->{NAME};
+  if ($err)
+  {
+    Log3 $name,3,"error while requesting ".$param->{url}." - $err";
+    readingsSingleUpdate($hash,"state","ERROR - $err",1);
+    # CommandDeleteReading(undef,"$name household_.*");
+  }
+  elsif ($data)
+  {
+    Log3 $name,5,"url ".$param->{url}." returned: $data";
+    # my $dec = eval {decode_json($data)};
   }
 }
 
