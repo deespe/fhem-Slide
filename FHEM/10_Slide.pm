@@ -83,7 +83,9 @@ sub Slide_Get($@)
   return "get $name needs one parameter: $para" if (!$cmd);
   if ($cmd eq "update")
   {
-    return "$cmd not implemented yet...";
+    CommandGet(undef,"$name household");
+    CommandGet(undef,"$name slides");
+    return undef;
   }
   elsif ($cmd eq "household")
   {
@@ -168,8 +170,7 @@ sub Slide_ParseLogin($)
       readingsBulkUpdate($hash,".household_id",$dec->{household_id});
       readingsBulkUpdate($hash,"state","login successful");
       readingsEndUpdate($hash,1);
-      CommandGet(undef,"$name household");
-      CommandGet(undef,"$name slides");
+      CommandGet(undef,"$name update");
       return;
     }
     elsif ($dec->{message})
