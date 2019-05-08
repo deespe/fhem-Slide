@@ -146,10 +146,11 @@ sub Slide_Set($@)
   {
     my $mode = $value ? "true" : "false";
     my $data = ReadingsVal($name,"household_holiday_routines","");
-    $data =~ s/"/\\"/g;
-    $data = "{ \\\"holiday_mode\\\": $mode, \\\"data\\\": ".$data." }";
-    $data =~ s/\\{2}/\\\\\\"/g;
-    Debug $data;
+    # $data =~ s/"/\\"/g;
+    $data = "{ \"holiday_mode\": $mode, \"data\": ".$data." }";
+    # $data = "{ \\\"holiday_mode\\\": $mode, \\\"data\\\": ".$data." }";
+    # $data =~ s/\\{2}/\\\\\\"/g;
+    # Debug $data;
     return Slide_request($hash,"https://api.goslide.io/api/households/holiday_mode","Slide_ParseHoliday",$data,"POST");
   }
   my $para = join(" ",@par);
@@ -278,7 +279,7 @@ sub Slide_ParseHousehold($)
     readingsBulkUpdate($hash,"household_lat",$data->{lat});
     readingsBulkUpdate($hash,"household_lon",$data->{lon});
     readingsBulkUpdate($hash,"household_xs_code",$data->{xs_code});
-    readingsBulkUpdate($hash,"household_holiday_mode",$data->{holiday_mode});
+    readingsBulkUpdate($hash,"holiday",$data->{holiday_mode});
     readingsBulkUpdate($hash,"household_holiday_routines",encode_json($data->{holiday_routines}));
     readingsBulkUpdate($hash,"household_created_at",$data->{created_at});
     readingsBulkUpdate($hash,"household_updated_at",$data->{updated_at});
@@ -331,6 +332,7 @@ sub Slide_ParseHoliday($)
   elsif ($data)
   {
     Log3 $name,5,"url ".$param->{url}." returned: $data";
+    CommandGet(undef,"$name household");
     # my $dec = eval {decode_json($data)};
   }
 }
