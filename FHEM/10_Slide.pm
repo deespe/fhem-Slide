@@ -28,10 +28,9 @@ sub Slide_Initialize($)
   $hash->{UndefFn}      = "Slide_Undef";
   $hash->{AttrList}     = "disable:1,0 ".
                           "disabledForIntervals ".
-                          "email ".
                           "interval ".
-                          "password ".
                           $readingFnAttributes;
+  $hash->{Clients}      = "SlideDevice";
 }
 
 sub Slide_Define($$)
@@ -45,12 +44,14 @@ sub Slide_Define($$)
   $hash->{VERSION}    = $version;
   $hash->{NOTIFYDEV}  = "global";
   RemoveInternalTimer($hash);
+  my $err = setKeyValue("Slide_".$name."_email",$email);
+  return "not able to store e-mail address" if ($err);
+  $err = setKeyValue("Slide_".$name."_sec",$sec);
+  return "not able to store password" if ($err);
   if ($init_done && !defined $hash->{OLDDEF})
   {
     $attr{$name}{alias}     = "Slide";
-    $attr{$name}{email}     = $email;
     $attr{$name}{icon}      = "it_wifi";
-    $attr{$name}{password}  = $sec;
     $attr{$name}{room}      = "Slide";
     $attr{$name}{interval}  = $int if ($int);
     readingsSingleUpdate($hash,"state","initialized",0);
@@ -72,8 +73,10 @@ sub Slide_Get($@)
   my ($hash,$name,@aa) = @_;
   my ($cmd,@args) = @aa;
   return if (IsDisabled($name) && $cmd ne "?");
+  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  Log3 $name,1,"$err - not able to get token" if ($err);
   my @par;
-  if (ReadingsVal($name,".access_token",undef))
+  if ($token)
   {
     push @par,"update:noArg";
     push @par,"household:noArg";
@@ -108,10 +111,12 @@ sub Slide_Set($@)
   my $value = (defined($args[0])) ? $args[0] : undef;
   return if (IsDisabled($name) && $cmd ne "?");
   return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
+  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  Log3 $name,1,"$err - not able to get token" if ($err);
   my @par;
   push @par,"password";
-  push @par,"login:noArg" if (!ReadingsVal($name,".access_token",undef));
-  push @par,"logout:noArg" if (ReadingsVal($name,".access_token",undef));
+  push @par,"login:noArg" if (!$token);
+  push @par,"logout:noArg" if ($token);
   if ($cmd eq "password")
   {
     return "$cmd needs a value..." if (!$value);
@@ -120,7 +125,11 @@ sub Slide_Set($@)
   }
   elsif ($cmd eq "login")
   {
-    return Slide_request($hash,"https://api.goslide.io/api/auth/login","Slide_ParseLogin","{\"email\":\"".AttrVal($name,"email","")."\",\"password\": \"".AttrVal($name,"password","")."\"}","POST");
+    my ($erre,$email) = getKeyValue("Slide_".$name."_email");
+    return "error reading e-mail address" if ($erre);
+    my ($errp,$sec) = getKeyValue("Slide_".$name."_sec");
+    return "error reading password" if ($errp);
+    return Slide_request($hash,"https://api.goslide.io/api/auth/login","Slide_ParseLogin","{\"email\":\"$email\",\"password\": \"$sec\"}","POST");
   }
   elsif ($cmd eq "logout")
   {
@@ -134,6 +143,8 @@ sub Slide_request($$$;$$)
   my ($hash,$url,$callback,$data,$method) = @_;
   $method = "GET" if (!$method);
   my $name = $hash->{NAME};
+  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  return "$err - not able to read token" if ($err);
   my $param = {
     url       => $url,
     timeout   => 5,
@@ -142,7 +153,7 @@ sub Slide_request($$$;$$)
     header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest",
     callback  => \&$callback
   };
-  $param->{header} .= "\r\nAuthorization: ".ReadingsVal($name,".token_type","")." ".ReadingsVal($name,".access_token","") if (ReadingsVal($name,".access_token",undef));
+  $param->{header} .= "\r\nAuthorization: ".ReadingsVal($name,".token_type","")." $token" if ($token);
   $param->{data} = $data if ($data);
   return HttpUtils_NonblockingGet($param);
 }
@@ -163,8 +174,9 @@ sub Slide_ParseLogin($)
     my $dec = eval {decode_json($data)};
     if ($dec->{access_token})
     {
+      my $err = setKeyValue("Slide_".$name."_token",$dec->{access_token});
+      return "$err - not able to store token" if ($err);
       readingsBeginUpdate($hash);
-      readingsBulkUpdate($hash,".access_token",$dec->{access_token});
       readingsBulkUpdate($hash,".token_type",$dec->{token_type});
       readingsBulkUpdate($hash,".expires_at",$dec->{expires_at});
       readingsBulkUpdate($hash,".household_id",$dec->{household_id});
@@ -206,7 +218,17 @@ sub Slide_ParseLogout($)
     if ($dec->{message})
     {
       readingsSingleUpdate($hash,"state",$dec->{message},1);
-      CommandDeleteReading(undef,"$name (\.access_token|\.token_type|\.expires_at|\.household_id|household_.*)") if ($dec->{message} eq "Successfully logged out");
+      if ($dec->{message} eq "Successfully logged out")
+      {
+        CommandDeleteReading(undef,"$name (\.token_type|\.expires_at|\.household_id|household_.*)");
+        $err = setKeyValue("Slide_".$name."_token",undef);
+        if ($err)
+        {
+          my $m = "$err - not able to delete token";
+          Log3 $name,1,$m;
+          return $m;
+        }
+      }
     }
     else
     {
