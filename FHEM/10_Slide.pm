@@ -117,7 +117,7 @@ sub Slide_Set($@)
   push @par,"password";
   push @par,"login:noArg" if (!$token);
   push @par,"logout:noArg" if ($token);
-  push @par,"holiday:0,1" if ($token);
+  push @par,"holiday:on,off" if ($token);
   if ($cmd eq "password")
   {
     return "$cmd needs a value..." if (!$value);
@@ -144,13 +144,9 @@ sub Slide_Set($@)
   }
   elsif ($cmd eq "holiday")
   {
-    my $mode = $value ? "true" : "false";
+    my $mode = $value eq "on" ? "true" : "false";
     my $data = ReadingsVal($name,"household_holiday_routines","");
-    # $data =~ s/"/\\"/g;
     $data = "{ \"holiday_mode\": $mode, \"data\": ".$data." }";
-    # $data = "{ \\\"holiday_mode\\\": $mode, \\\"data\\\": ".$data." }";
-    # $data =~ s/\\{2}/\\\\\\"/g;
-    # Debug $data;
     return Slide_request($hash,"https://api.goslide.io/api/households/holiday_mode","Slide_ParseHoliday",$data,"POST");
   }
   my $para = join(" ",@par);
@@ -172,7 +168,7 @@ sub Slide_request($$$;$$)
     header    => "Content-Type: application/json\r\nX-Requested-With: XMLHttpRequest",
     callback  => \&$callback
   };
-  $param->{header} .= "\r\nAuthorization: ".ReadingsVal($name,".token_type","")." $token" if ($token);
+  $param->{header} .= "\r\nAuthorization: ".ReadingsVal($name,".token_type","Bearer")." $token" if ($token);
   $param->{data} = $data if ($data);
   return HttpUtils_NonblockingGet($param);
 }
@@ -198,7 +194,6 @@ sub Slide_ParseLogin($)
       readingsBeginUpdate($hash);
       readingsBulkUpdate($hash,".token_type",$dec->{token_type});
       readingsBulkUpdate($hash,".expires_at",$dec->{expires_at});
-      readingsBulkUpdate($hash,".household_id",$dec->{household_id});
       readingsBulkUpdate($hash,"state","login successful");
       readingsEndUpdate($hash,1);
       CommandGet(undef,"$name update");
@@ -236,10 +231,9 @@ sub Slide_ParseLogout($)
     my $dec = eval {decode_json($data)};
     if ($dec->{message})
     {
-      readingsSingleUpdate($hash,"state",$dec->{message},1);
       if ($dec->{message} eq "Successfully logged out")
       {
-        CommandDeleteReading(undef,"$name (\.token_type|\.expires_at|\.household_id|household_.*)");
+        CommandDeleteReading(undef,"$name .*");
         $err = setKeyValue("Slide_".$name."_token",undef);
         if ($err)
         {
@@ -248,6 +242,7 @@ sub Slide_ParseLogout($)
           return $m;
         }
       }
+      readingsSingleUpdate($hash,"state",$dec->{message},1);
     }
     else
     {
@@ -264,8 +259,8 @@ sub Slide_ParseHousehold($)
   if ($err)
   {
     Log3 $name,3,"error while requesting ".$param->{url}." - $err";
+    CommandDeleteReading(undef,"$name (id|name|address|lat|lon|xs_code|holiday|holiday_routines|created_at|updated_at)");
     readingsSingleUpdate($hash,"state","ERROR - $err",1);
-    CommandDeleteReading(undef,"$name household_.*");
   }
   elsif ($data)
   {
@@ -273,16 +268,16 @@ sub Slide_ParseHousehold($)
     my $dec = eval {decode_json($data)};
     $data = $dec->{data};
     readingsBeginUpdate($hash);
-    readingsBulkUpdate($hash,"household_id",$data->{id});
-    readingsBulkUpdate($hash,"household_name",$data->{name});
-    readingsBulkUpdate($hash,"household_address",$data->{address});
-    readingsBulkUpdate($hash,"household_lat",$data->{lat});
-    readingsBulkUpdate($hash,"household_lon",$data->{lon});
-    readingsBulkUpdate($hash,"household_xs_code",$data->{xs_code});
-    readingsBulkUpdate($hash,"holiday",$data->{holiday_mode});
-    readingsBulkUpdate($hash,"household_holiday_routines",encode_json($data->{holiday_routines}));
-    readingsBulkUpdate($hash,"household_created_at",$data->{created_at});
-    readingsBulkUpdate($hash,"household_updated_at",$data->{updated_at});
+    readingsBulkUpdate($hash,"id",$data->{id});
+    readingsBulkUpdate($hash,"name",$data->{name});
+    readingsBulkUpdate($hash,"address",$data->{address});
+    readingsBulkUpdate($hash,"lat",$data->{lat});
+    readingsBulkUpdate($hash,"lon",$data->{lon});
+    readingsBulkUpdate($hash,"xs_code",$data->{xs_code});
+    readingsBulkUpdate($hash,"holiday",$data->{holiday_mode} ? "on" : "off");
+    readingsBulkUpdate($hash,"holiday_routines",encode_json($data->{holiday_routines}));
+    readingsBulkUpdate($hash,"created_at",$data->{created_at});
+    readingsBulkUpdate($hash,"updated_at",$data->{updated_at});
     readingsBulkUpdate($hash,"state","got household info");
     readingsEndUpdate($hash,1);
   }
