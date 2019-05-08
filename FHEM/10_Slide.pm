@@ -41,6 +41,7 @@ sub Slide_Define($$)
   my ($name,$type,$email,$sec,$int) = @args;
   return "Usage: define <name> Slide <E-MAIL> <PASSWORD> [<INTERVAL>]" if ($init_done && (@args < 4 || @args > 5));
   $int = 10 if ($int && $int < 10) ;
+  $hash->{DEF} = "";
   $hash->{VERSION}    = $version;
   $hash->{NOTIFYDEV}  = "global";
   RemoveInternalTimer($hash);
@@ -94,7 +95,7 @@ sub Slide_Get($@)
   }
   else
   {
-    return $para?"Unknown argument $cmd for $name, choose one of $para":undef;
+    return $para ? "Unknown argument $cmd for $name, choose one of $para" : undef;
   }
 }
 
@@ -102,16 +103,18 @@ sub Slide_Set($@)
 {
   my ($hash,$name,@aa) = @_;
   my ($cmd,@args) = @aa;
+  my $value = (defined($args[0])) ? $args[0] : undef;
   return if (IsDisabled($name) && $cmd ne "?");
   return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
   my @par;
   push @par,"password";
   push @par,"login:noArg" if (!ReadingsVal($name,".access_token",undef));
   push @par,"logout:noArg" if (ReadingsVal($name,".access_token",undef));
-  my $para = join(" ",@par);
   if ($cmd eq "password")
   {
-    return "$cmd not implemented yet...";
+    return "$cmd needs a value..." if (!$value);
+    CommandAttr(undef,"$name password $value");
+    return undef;
   }
   elsif ($cmd eq "login")
   {
@@ -121,7 +124,7 @@ sub Slide_Set($@)
   {
     return Slide_request($hash,"https://api.goslide.io/api/auth/logout","Slide_ParseLogout",undef,"POST");
   }
-  return $para;
+  return join(" ",@par);
 }
 
 sub Slide_request($$$;$$)
@@ -171,13 +174,17 @@ sub Slide_ParseLogin($)
     }
     elsif ($dec->{message})
     {
-      readingsSingleUpdate($hash,"state",$dec->{message},1);
+      if ($dec->{message} eq "Unauthorized")
+      {
+        $err = "$dec->{message} - wrong e-mail address or wrong password";
+        readingsSingleUpdate($hash,"state",$err,1);
+        Log3 $name,1,"$name: $err";
+      }
     }
     else
     {
       readingsSingleUpdate($hash,"state","ERROR - unknown error",1);
     }
-    CommandDeleteReading(undef,"$name \.(access_token|token_type|expires_at|household_id)");
   }
 }
 
@@ -198,7 +205,7 @@ sub Slide_ParseLogout($)
     if ($dec->{message})
     {
       readingsSingleUpdate($hash,"state",$dec->{message},1);
-      CommandDeleteReading(undef,"$name \.(access_token|token_type|expires_at|household_id)") if ($dec->{message} eq "Successfully logged out");
+      CommandDeleteReading(undef,"$name (\.access_token|\.token_type|\.expires_at|\.household_id|household_.*)") if ($dec->{message} eq "Successfully logged out");
     }
     else
     {
@@ -231,7 +238,7 @@ sub Slide_ParseHousehold($)
     readingsBulkUpdate($hash,"household_lon",$data->{lon});
     readingsBulkUpdate($hash,"household_xs_code",$data->{xs_code});
     readingsBulkUpdate($hash,"household_holiday_mode",$data->{holiday_mode});
-    readingsBulkUpdate($hash,"household_holiday_routines",$data->{holiday_routines});
+    readingsBulkUpdate($hash,"household_holiday_routines",encode_json($data->{holiday_routines}));
     readingsBulkUpdate($hash,"household_created_at",$data->{created_at});
     readingsBulkUpdate($hash,"household_updated_at",$data->{updated_at});
     readingsBulkUpdate($hash,"state","got household info");
