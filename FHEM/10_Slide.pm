@@ -48,15 +48,19 @@ sub Slide_Define($$)
   if ($init_done && !defined $hash->{OLDDEF})
   {
     my $msg;
-    my $err = setKeyValue("Slide_".$name."_email",$email);
+    # my $err = setKeyValue("Slide_".$name."_email",$email);
+    my $err = Slide_storeVal("Slide_".$name."_email",$email);
     $msg = "not able to store e-mail address ($err) " if ($err);
-    $err = setKeyValue("Slide_".$name."_sec",$sec);
+    $err = Slide_storeVal("Slide_".$name."_sec",$sec);
+    # $err = setKeyValue("Slide_".$name."_sec",$sec);
     $msg .= "not able to store password ($err)" if ($err);
     return $msg if ($msg);
-    $attr{$name}{alias}     = "Slide";
-    $attr{$name}{icon}      = "it_wifi";
-    $attr{$name}{room}      = "Slide";
+    $attr{$name}{alias}     = "Slide Cloud API";
+    $attr{$name}{icon}      = "file_json-ld1";
     $attr{$name}{interval}  = $int if ($int);
+    $attr{$name}{room}      = "Slide";
+    $attr{$name}{webCmd}    = "holiday_mode";
+    $attr{$name}{webCmdLabel}    = "Holiday Mode";
     readingsSingleUpdate($hash,"state","initialized",0);
   }
   return CommandSet(undef,"$name login");
@@ -73,10 +77,10 @@ sub Slide_Delete($$)
 {
   my ($hash,$arg) = @_;
   my $name = $hash->{NAME};
-  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  my ($err,$token) = Slide_retriveVal("Slide_".$name."_token");
   CommandSet(undef,"$name logout") if ($token);
-  setKeyValue("Slide_".$name."_email",undef);
-  setKeyValue("Slide_".$name."_sec",undef);
+  Slide_storeVal("Slide_".$name."_email",undef);
+  Slide_storeVal("Slide_".$name."_sec",undef);
   return;
 }
 
@@ -85,7 +89,7 @@ sub Slide_Get($@)
   my ($hash,$name,@aa) = @_;
   my ($cmd,@args) = @aa;
   return if (IsDisabled($name) && $cmd ne "?");
-  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  my ($err,$token) = Slide_retriveVal("Slide_".$name."_token");
   Log3 $name,1,"$err - not able to get token" if ($err);
   my @par;
   if ($token)
@@ -123,7 +127,7 @@ sub Slide_Set($@)
   my $value = (defined($args[0])) ? $args[0] : undef;
   return if (IsDisabled($name) && $cmd ne "?");
   return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
-  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  my ($err,$token) = Slide_retriveVal("Slide_".$name."_token");
   Log3 $name,1,"$err - not able to get token" if ($err);
   my @par;
   push @par,"email";
@@ -133,11 +137,11 @@ sub Slide_Set($@)
   push @par,"holiday_mode:on,off" if ($token);
   if ($cmd =~ /^password|email$/)
   {
-    return "$cmd needs a value..." if (!$value);
+    return "set $cmd needs a value..." if (!$value);
     $err = "";
-    $err .= setKeyValue("Slide_".$name."_email",$value) if ($cmd eq "email");
+    $err .= Slide_storeVal("Slide_".$name."_email",$value) if ($cmd eq "email");
     $err .= " " if ($err);
-    $err .= setKeyValue("Slide_".$name."_sec",$value) if ($cmd eq "password");
+    $err .= Slide_storeVal("Slide_".$name."_sec",$value) if ($cmd eq "password");
     if (!$err)
     {
       CommandSet(undef,"$name logout") if ($token);
@@ -148,10 +152,10 @@ sub Slide_Set($@)
   }
   elsif ($cmd eq "login")
   {
-    my ($erre,$email) = getKeyValue("Slide_".$name."_email");
+    my ($erre,$email) = Slide_retriveVal("Slide_".$name."_email");
     Log3 $name,1,"$name: error reading e-mail address" if ($erre);
     Log3 $name,1,"$name: error no e-mail address found, please set it" if (!$email);
-    my ($errp,$sec) = getKeyValue("Slide_".$name."_sec");
+    my ($errp,$sec) = Slide_retriveVal("Slide_".$name."_sec");
     Log3 $name,1,"$name: error reading password" if ($errp);
     Log3 $name,1,"$name: error no password found, please set it" if (!$sec);
     readingsSingleUpdate($hash,"state","an error occured, please see the log",1) if ($erre || $errp || !$email || !$sec);
@@ -179,7 +183,7 @@ sub Slide_request($$$;$$)
   my ($hash,$url,$callback,$data,$method) = @_;
   $method = "GET" if (!$method);
   my $name = $hash->{NAME};
-  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  my ($err,$token) = Slide_retriveVal("Slide_".$name."_token");
   return "$err - not able to read token" if ($err);
   my $param = {
     url       => $url,
@@ -210,7 +214,7 @@ sub Slide_ParseLogin($)
     my $dec = eval {decode_json($data)};
     if ($dec->{access_token})
     {
-      my $err = setKeyValue("Slide_".$name."_token",$dec->{access_token});
+      my $err = Slide_storeVal("Slide_".$name."_token",$dec->{access_token});
       return "$err - not able to store token" if ($err);
       readingsBeginUpdate($hash);
       readingsBulkUpdate($hash,".token_type",$dec->{token_type});
@@ -255,7 +259,7 @@ sub Slide_ParseLogout($)
       if ($dec->{message} eq "Successfully logged out")
       {
         CommandDeleteReading(undef,"$name .*");
-        $err = setKeyValue("Slide_".$name."_token",undef);
+        $err = Slide_storeVal("Slide_".$name."_token",undef);
         if ($err)
         {
           my $m = "$err - not able to delete token";
@@ -351,6 +355,20 @@ sub Slide_ParseHoliday($)
     CommandGet(undef,"$name household");
     # my $dec = eval {decode_json($data)};
   }
+}
+
+sub Slide_storeVal($$)
+{
+  my ($key,$val) = @_;
+  my $err = setKeyValue($key,$val);
+  return $err ? $err : undef;
+}
+
+sub Slide_retriveVal($)
+{
+  my ($key) = @_;
+  my ($err,$val) = getKeyValue($key);
+  return ($err,$val);
 }
 
 1;
