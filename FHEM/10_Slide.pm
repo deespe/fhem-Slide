@@ -26,6 +26,7 @@ sub Slide_Initialize($)
   $hash->{GetFn}        = "Slide_Get";
   $hash->{SetFn}        = "Slide_Set";
   $hash->{UndefFn}      = "Slide_Undef";
+  $hash->{DeleteFn}     = "Slide_Delete";
   $hash->{AttrList}     = "disable:1,0 ".
                           "disabledForIntervals ".
                           "interval ".
@@ -44,12 +45,14 @@ sub Slide_Define($$)
   $hash->{VERSION}    = $version;
   $hash->{NOTIFYDEV}  = "global";
   RemoveInternalTimer($hash);
-  my $err = setKeyValue("Slide_".$name."_email",$email);
-  return "not able to store e-mail address" if ($err);
-  $err = setKeyValue("Slide_".$name."_sec",$sec);
-  return "not able to store password" if ($err);
   if ($init_done && !defined $hash->{OLDDEF})
   {
+    my $msg;
+    my $err = setKeyValue("Slide_".$name."_email",$email);
+    $msg = "not able to store e-mail address ($err) " if ($err);
+    $err = setKeyValue("Slide_".$name."_sec",$sec);
+    $msg .= "not able to store password ($err)" if ($err);
+    return $msg if ($msg);
     $attr{$name}{alias}     = "Slide";
     $attr{$name}{icon}      = "it_wifi";
     $attr{$name}{room}      = "Slide";
@@ -63,8 +66,17 @@ sub Slide_Undef($$)
 {
   my ($hash,$arg) = @_;
   RemoveInternalTimer($hash);
-  BlockingKill($hash->{helper}{RUNNING_PID}) if ($hash->{helper}{RUNNING_PID});
-  DevIo_CloseDev($hash);
+  return;
+}
+
+sub Slide_Delete($$)
+{
+  my ($hash,$arg) = @_;
+  my $name = $hash->{NAME};
+  my ($err,$token) = getKeyValue("Slide_".$name."_token");
+  CommandSet(undef,"$name logout") if ($token);
+  setKeyValue("Slide_".$name."_email",undef);
+  setKeyValue("Slide_".$name."_sec",undef);
   return;
 }
 
@@ -114,39 +126,48 @@ sub Slide_Set($@)
   my ($err,$token) = getKeyValue("Slide_".$name."_token");
   Log3 $name,1,"$err - not able to get token" if ($err);
   my @par;
+  push @par,"email";
   push @par,"password";
   push @par,"login:noArg" if (!$token);
   push @par,"logout:noArg" if ($token);
-  push @par,"holiday:on,off" if ($token);
-  if ($cmd eq "password")
+  push @par,"holiday_mode:on,off" if ($token);
+  if ($cmd =~ /^password|email$/)
   {
     return "$cmd needs a value..." if (!$value);
-    $err = setKeyValue("Slide_".$name."_sec",$value);
+    $err = "";
+    $err .= setKeyValue("Slide_".$name."_email",$value) if ($cmd eq "email");
+    $err .= " " if ($err);
+    $err .= setKeyValue("Slide_".$name."_sec",$value) if ($cmd eq "password");
     if (!$err)
     {
       CommandSet(undef,"$name logout") if ($token);
-      CommandSet(undef,"$name login");
       return undef;
     }
+    Log3 $name,1,$err;
     return $err;
   }
   elsif ($cmd eq "login")
   {
     my ($erre,$email) = getKeyValue("Slide_".$name."_email");
-    return "error reading e-mail address" if ($erre);
+    Log3 $name,1,"$name: error reading e-mail address" if ($erre);
+    Log3 $name,1,"$name: error no e-mail address found, please set it" if (!$email);
     my ($errp,$sec) = getKeyValue("Slide_".$name."_sec");
-    return "error reading password" if ($errp);
+    Log3 $name,1,"$name: error reading password" if ($errp);
+    Log3 $name,1,"$name: error no password found, please set it" if (!$sec);
+    readingsSingleUpdate($hash,"state","an error occured, please see the log",1) if ($erre || $errp || !$email || !$sec);
     return Slide_request($hash,"https://api.goslide.io/api/auth/login","Slide_ParseLogin","{\"email\":\"$email\",\"password\": \"$sec\"}","POST");
   }
   elsif ($cmd eq "logout")
   {
     return Slide_request($hash,"https://api.goslide.io/api/auth/logout","Slide_ParseLogout",undef,"POST");
   }
-  elsif ($cmd eq "holiday")
+  elsif ($cmd eq "holiday_mode")
   {
     my $mode = $value eq "on" ? "true" : "false";
-    my $data = ReadingsVal($name,"household_holiday_routines","");
+    my $data = ReadingsVal($name,"holiday_routines",undef);
+    return "no holiday data available, please execute \"get $name household\" and after that try to set holiday_mode again"  if (!$data || $data eq "null");
     $data = "{ \"holiday_mode\": $mode, \"data\": ".$data." }";
+    Log3 $name,5,"$name: $data";
     return Slide_request($hash,"https://api.goslide.io/api/households/holiday_mode","Slide_ParseHoliday",$data,"POST");
   }
   my $para = join(" ",@par);
@@ -201,12 +222,12 @@ sub Slide_ParseLogin($)
     }
     elsif ($dec->{message})
     {
-      if ($dec->{message} eq "Unauthorized")
-      {
-        $err = "$dec->{message} - wrong e-mail address or wrong password";
-        readingsSingleUpdate($hash,"state",$err,1);
-        Log3 $name,1,"$name: $err";
-      }
+      $err = $dec->{message};
+      $err .= " - wrong e-mail address or wrong password" if (!$dec->{errors});
+      $err .= " ".$dec->{errors}->{email}[0] if ($dec->{errors}->{email}[0]);
+      $err .= " ".$dec->{errors}->{password}[0] if ($dec->{errors}->{password}[0]);
+      readingsSingleUpdate($hash,"state",$err,1);
+      Log3 $name,1,"$name: $err";
     }
     else
     {
@@ -259,7 +280,7 @@ sub Slide_ParseHousehold($)
   if ($err)
   {
     Log3 $name,3,"error while requesting ".$param->{url}." - $err";
-    CommandDeleteReading(undef,"$name (id|name|address|lat|lon|xs_code|holiday|holiday_routines|created_at|updated_at)");
+    CommandDeleteReading(undef,"$name (id|name|address|lat|lon|xs_code|holiday_mode|holiday_routines|created_at|updated_at)");
     readingsSingleUpdate($hash,"state","ERROR - $err",1);
   }
   elsif ($data)
@@ -274,11 +295,11 @@ sub Slide_ParseHousehold($)
     readingsBulkUpdate($hash,"lat",$data->{lat});
     readingsBulkUpdate($hash,"lon",$data->{lon});
     readingsBulkUpdate($hash,"xs_code",$data->{xs_code});
-    readingsBulkUpdate($hash,"holiday",$data->{holiday_mode} ? "on" : "off");
+    readingsBulkUpdate($hash,"holiday_mode",$data->{holiday_mode} ? "on" : "off");
     readingsBulkUpdate($hash,"holiday_routines",encode_json($data->{holiday_routines}));
     readingsBulkUpdate($hash,"created_at",$data->{created_at});
     readingsBulkUpdate($hash,"updated_at",$data->{updated_at});
-    readingsBulkUpdate($hash,"state","got household info");
+    readingsBulkUpdate($hash,"state","Got household info");
     readingsEndUpdate($hash,1);
   }
 }
@@ -292,7 +313,6 @@ sub Slide_ParseSlides($)
   {
     Log3 $name,3,"error while requesting ".$param->{url}." - $err";
     readingsSingleUpdate($hash,"state","ERROR - $err",1);
-    # CommandDeleteReading(undef,"$name household_.*");
   }
   elsif ($data)
   {
@@ -301,9 +321,10 @@ sub Slide_ParseSlides($)
     if ($dec->{slides})
     {
       my @slides = $dec->{slides};
-      Dumper $dec->{slides} if (@slides > 0);
+      my $msg = "Got Slides info";
+      $msg = "No Slides found" if (ref($dec->{slides}) ne "HASH");
       readingsBeginUpdate($hash);
-      readingsBulkUpdate($hash,"state","got slides info");
+      readingsBulkUpdate($hash,"state",$msg);
       readingsEndUpdate($hash,1);
     }
     else
