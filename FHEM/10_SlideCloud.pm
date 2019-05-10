@@ -25,6 +25,8 @@ sub SlideCloud_Initialize($)
   #$hash->{NotifyFn}     = "SlideCloud_Notify";
   $hash->{GetFn}        = "SlideCloud_Get";
   $hash->{SetFn}        = "SlideCloud_Set";
+  $hash->{RenameFn}     = "SlideCloud_Rename";
+  $hash->{CopyFn}       = "SlideCloud_Copy";
   $hash->{UndefFn}      = "SlideCloud_Undef";
   $hash->{DeleteFn}     = "SlideCloud_Delete";
   $hash->{AttrList}     = "disable:1,0 ".
@@ -71,6 +73,29 @@ sub SlideCloud_Undef($$)
   my ($hash,$arg) = @_;
   RemoveInternalTimer($hash);
   return;
+}
+
+sub SlideCloud_Rename($$)
+{
+  my ($nname,$oname) = @_;
+  my (undef,$token) = SlideCloud_retriveVal("SlideCloud_".$oname."_token");
+  my (undef,$email) = SlideCloud_retriveVal("SlideCloud_".$oname."_email");
+  my (undef,$sec) = SlideCloud_retriveVal("SlideCloud_".$oname."_sec");
+  if ($token)
+  {
+    SlideCloud_storeVal("SlideCloud_".$oname."_token",undef);
+    SlideCloud_storeVal("SlideCloud_".$nname."_token",$token);
+  }
+  if ($email)
+  {
+    SlideCloud_storeVal("SlideCloud_".$oname."_email",undef);
+    SlideCloud_storeVal("SlideCloud_".$nname."_email",$email);
+  }
+  if ($sec)
+  {
+    SlideCloud_storeVal("SlideCloud_".$oname."_sec",undef);
+    SlideCloud_storeVal("SlideCloud_".$nname."_sec",$sec);
+  }
 }
 
 sub SlideCloud_Delete($$)
