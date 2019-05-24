@@ -57,15 +57,15 @@ sub SlideCloud_Define($$)
     # $err = setKeyValue("SlideCloud_".$name."_sec",$sec);
     $msg .= "not able to store password ($err)" if ($err);
     return $msg if ($msg);
-    $attr{$name}{alias}     = "Slide Cloud API";
-    $attr{$name}{icon}      = "file_json-ld1";
-    $attr{$name}{interval}  = $int if ($int);
-    $attr{$name}{room}      = "Slide";
-    $attr{$name}{webCmd}    = "holiday_mode";
-    $attr{$name}{webCmdLabel}    = "Holiday Mode";
+    $attr{$name}{alias}       = "Slide Cloud API";
+    $attr{$name}{icon}        = "file_json-ld1";
+    $attr{$name}{interval}    = $int if ($int);
+    $attr{$name}{room}        = "Slide";
+    $attr{$name}{webCmd}      = "holiday_mode";
+    $attr{$name}{webCmdLabel} = "Holiday Mode";
     readingsSingleUpdate($hash,"state","initialized",0);
+    return CommandSet(undef,"$name login");
   }
-  return CommandSet(undef,"$name login");
 }
 
 sub SlideCloud_Undef($$)
