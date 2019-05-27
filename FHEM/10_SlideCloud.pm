@@ -14,6 +14,7 @@ use warnings;
 use POSIX;
 use JSON;
 use HttpUtils;
+use Data::Dumper;
 
 my $version = "0.1.0";
 
@@ -29,13 +30,13 @@ sub SlideCloud_Initialize($)
   $hash->{CopyFn}       = "SlideCloud_Copy";
   $hash->{UndefFn}      = "SlideCloud_Undef";
   $hash->{DeleteFn}     = "SlideCloud_Delete";
+  $hash->{ReadFn}       = "SlideCloud_Read";
   $hash->{WriteFn}      = "SlideCloud_Write";
-  $hash->{MatchList}    = { "1:Slide" => "^{\"id\":\".*\"" };
+  $hash->{Clients}      = ":Slide:";
   $hash->{AttrList}     = "disable:1,0 ".
                           "disabledForIntervals ".
                           "interval ".
                           $readingFnAttributes;
-  $hash->{Clients}      = "Slide";
   foreach (sort keys %{$modules{SlideCloud}{defptr}})
   {
     my $hash = $modules{SlideCloud}{defptr}{$_};
@@ -53,7 +54,7 @@ sub SlideCloud_Define($$)
   $hash->{DEF}        = "";
   $hash->{BRIDGE}     = 1;
   $hash->{VERSION}    = $version;
-  $hash->{NOTIFYDEV}  = "global,$name";
+  $hash->{NOTIFYDEV}  = "global";
   RemoveInternalTimer($hash);
   if ($init_done && !defined $hash->{OLDDEF})
   {
@@ -70,9 +71,8 @@ sub SlideCloud_Define($$)
     $attr{$name}{webCmd}      = "holiday_mode";
     $attr{$name}{webCmdLabel} = "Holiday Mode";
     readingsSingleUpdate($hash,"state","initialized",0);
-    CommandSet(undef,"$name login");
+    CommandSet(undef,"$name login") if (!IsDisabled($name));
   }
-  $modules{SlideCloud}{defptr}{BRIDGE} = $hash;
   return;
 }
 
@@ -80,7 +80,6 @@ sub SlideCloud_Undef($$)
 {
   my ($hash,$arg) = @_;
   RemoveInternalTimer($hash);
-  delete $modules{SlideCloud}{defptr}{BRIDGE} if (defined($modules{SlideCloud}{defptr}{BRIDGE}));
   return;
 }
 
@@ -167,8 +166,12 @@ sub SlideCloud_Set($@)
   push @par,"email";
   push @par,"password";
   push @par,"login:noArg" if (!$token);
-  push @par,"logout:noArg" if ($token);
-  push @par,"holiday_mode:on,off" if ($token);
+  if ($token)
+  {
+    push @par,"logout:noArg";
+    push @par,"holiday_mode:on,off";
+    push @par,"autocreate";
+  }
   if ($cmd =~ /^password|email$/i)
   {
     return "set $cmd needs a value..." if (!$value);
@@ -198,6 +201,10 @@ sub SlideCloud_Set($@)
   elsif (lc $cmd eq "logout")
   {
     return SlideCloud_request($hash,"https://api.goslide.io/api/auth/logout","SlideCloud_ParseLogout",undef,"POST");
+  }
+  elsif (lc $cmd eq "autocreate")
+  {
+    return "not implemented yet";
   }
   elsif (lc $cmd eq "holiday_mode")
   {
@@ -364,6 +371,7 @@ sub SlideCloud_ParseSlides($)
       # Debug $dec->{slides}[0]->{device_name};
       if (@slides)
       {
+        Dumper @slides;
         foreach (@slides)
         {
           my $cid     = $_->[0]->{id};
@@ -441,16 +449,36 @@ sub SlideCloud_Attr(@)
   return $err ? $err : undef;
 }
 
-sub SlideCloud_Notify($$) {
+sub SlideCloud_Notify($$)
+{
 
-    my ($hash,$dev) = @_;
-    my $name = $hash->{NAME};
-    return if (IsDisabled($name));
-    my $devname = $dev->{NAME};
-    my $devtype = $dev->{TYPE};
-    my $events  = deviceEvents( $dev, 1 );
-    return if (!$events);
-    return;
+  my ($hash,$dev) = @_;
+  my $name = $hash->{NAME};
+  if (IsDisabled($name))
+  {
+    readingsSingleUpdate($hash,"state","disabled",1);
+    return undef;
+  }
+  my $devname = $dev->{NAME};
+  my $devtype = $dev->{TYPE};
+  return if ($devname ne "global");
+  return if (!grep(/^INITIALIZED|REREADCFG$/,@{$dev->{CHANGED}}));
+  my $events  = deviceEvents( $dev, 1 );
+  return if (!$events);
+  return;
+}
+
+sub SlideCloud_Read($)
+{
+  my ($hash) = @_;
+  my $name = $hash->{NAME};
+  return;
+}
+
+sub SlideCloud_Write($)
+{
+  my ($hash,$chash,$name,$id,$obj) = @_;
+  return;
 }
 
 sub SlideCloud_storeVal($$)

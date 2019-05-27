@@ -28,7 +28,8 @@ sub Slide_Initialize($)
   $hash->{CopyFn}       = "Slide_Copy";
   $hash->{UndefFn}      = "Slide_Undef";
   $hash->{ParseFn}      = "Slide_Parse";
-  $hash->{AttrList}     = "disable:1,0 ".
+  $hash->{AttrList}     = "IODev ".
+                          "disable:1,0 ".
                           "disabledForIntervals ".
                           "interval ".
                           $readingFnAttributes;
@@ -68,7 +69,7 @@ sub Slide_Define($$)
   return "Slide device $name on SlideCloud $iodev already defined." if (defined($d) && $d->{IODev} == $hash->{IODev} && $d->{NAME} ne $name);
   Log3 $name,3,"Slide ($name) - defined Slide with DEVICEID: $id";
   readingsSingleUpdate($hash,"state","initialized",0);
-  $modules{Slide}{defptr}{$id} = $hash;
+  # $modules{Slide}{defptr}{$id} = $hash;
   return;
 }
 
@@ -104,13 +105,11 @@ sub Slide_Set($@)
   my $value = (defined($args[0])) ? $args[0] : undef;
   return if (IsDisabled($name) && $cmd ne "?");
   return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
-  my ($err,$token) = Slide_retriveVal("Slide_".$name."_token");
-  Log3 $name,1,"$err - not able to get token" if ($err);
   my @par;
   push @par,"position:slider,0,0.01,1";
   if (lc $cmd eq "position")
   {
-    return;
+    return "not implemented yet";
   }
   my $para = join(" ",@par);
   return $para ? "Unknown argument $cmd for $name, choose one of $para" : undef;
