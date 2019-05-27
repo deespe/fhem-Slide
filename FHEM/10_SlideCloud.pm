@@ -20,20 +20,27 @@ my $version = "0.1.0";
 sub SlideCloud_Initialize($)
 {
   my ($hash) = @_;
-  #$hash->{AttrFn}       = "SlideCloud_Attr";
+  $hash->{AttrFn}       = "SlideCloud_Attr";
   $hash->{DefFn}        = "SlideCloud_Define";
-  #$hash->{NotifyFn}     = "SlideCloud_Notify";
+  $hash->{NotifyFn}     = "SlideCloud_Notify";
   $hash->{GetFn}        = "SlideCloud_Get";
   $hash->{SetFn}        = "SlideCloud_Set";
   $hash->{RenameFn}     = "SlideCloud_Rename";
   $hash->{CopyFn}       = "SlideCloud_Copy";
   $hash->{UndefFn}      = "SlideCloud_Undef";
   $hash->{DeleteFn}     = "SlideCloud_Delete";
+  $hash->{WriteFn}      = "SlideCloud_Write";
+  $hash->{MatchList}    = { "1:Slide" => "^{\"id\":\".*\"" };
   $hash->{AttrList}     = "disable:1,0 ".
                           "disabledForIntervals ".
                           "interval ".
                           $readingFnAttributes;
-  $hash->{Clients}      = "SlideDevice";
+  $hash->{Clients}      = "Slide";
+  foreach (sort keys %{$modules{SlideCloud}{defptr}})
+  {
+    my $hash = $modules{SlideCloud}{defptr}{$_};
+    $hash->{VERSION} = $version;
+  }
 }
 
 sub SlideCloud_Define($$)
@@ -43,18 +50,17 @@ sub SlideCloud_Define($$)
   my ($name,$type,$email,$sec,$int) = @args;
   return "Usage: define <name> SlideCloud <E-MAIL> <PASSWORD> [<INTERVAL>]" if ($init_done && (@args < 4 || @args > 5));
   $int = 10 if ($int && $int < 10) ;
-  $hash->{DEF} = "";
+  $hash->{DEF}        = "";
+  $hash->{BRIDGE}     = 1;
   $hash->{VERSION}    = $version;
-  $hash->{NOTIFYDEV}  = "global";
+  $hash->{NOTIFYDEV}  = "global,$name";
   RemoveInternalTimer($hash);
   if ($init_done && !defined $hash->{OLDDEF})
   {
     my $msg;
-    # my $err = setKeyValue("SlideCloud_".$name."_email",$email);
     my $err = SlideCloud_storeVal("SlideCloud_".$name."_email",$email);
     $msg = "not able to store e-mail address ($err) " if ($err);
     $err = SlideCloud_storeVal("SlideCloud_".$name."_sec",$sec);
-    # $err = setKeyValue("SlideCloud_".$name."_sec",$sec);
     $msg .= "not able to store password ($err)" if ($err);
     return $msg if ($msg);
     $attr{$name}{alias}       = "Slide Cloud API";
@@ -64,14 +70,17 @@ sub SlideCloud_Define($$)
     $attr{$name}{webCmd}      = "holiday_mode";
     $attr{$name}{webCmdLabel} = "Holiday Mode";
     readingsSingleUpdate($hash,"state","initialized",0);
-    return CommandSet(undef,"$name login");
+    CommandSet(undef,"$name login");
   }
+  $modules{SlideCloud}{defptr}{BRIDGE} = $hash;
+  return;
 }
 
 sub SlideCloud_Undef($$)
 {
   my ($hash,$arg) = @_;
   RemoveInternalTimer($hash);
+  delete $modules{SlideCloud}{defptr}{BRIDGE} if (defined($modules{SlideCloud}{defptr}{BRIDGE}));
   return;
 }
 
@@ -125,17 +134,17 @@ sub SlideCloud_Get($@)
   }
   my $para = join(" ",@par);
   return "get $name needs one parameter: $para" if (!$cmd);
-  if ($cmd eq "update")
+  if (lc $cmd eq "update")
   {
     CommandGet(undef,"$name household");
     CommandGet(undef,"$name slides");
     return undef;
   }
-  elsif ($cmd eq "household")
+  elsif (lc $cmd eq "household")
   {
     return SlideCloud_request($hash,"https://api.goslide.io/api/households","SlideCloud_ParseHousehold");
   }
-  elsif ($cmd eq "slides")
+  elsif (lc $cmd eq "slides")
   {
     return SlideCloud_request($hash,"https://api.goslide.io/api/slides/overview","SlideCloud_ParseSlides");
   }
@@ -160,7 +169,7 @@ sub SlideCloud_Set($@)
   push @par,"login:noArg" if (!$token);
   push @par,"logout:noArg" if ($token);
   push @par,"holiday_mode:on,off" if ($token);
-  if ($cmd =~ /^password|email$/)
+  if ($cmd =~ /^password|email$/i)
   {
     return "set $cmd needs a value..." if (!$value);
     $err = "";
@@ -175,7 +184,7 @@ sub SlideCloud_Set($@)
     Log3 $name,1,$err;
     return $err;
   }
-  elsif ($cmd eq "login")
+  elsif (lc $cmd eq "login")
   {
     my ($erre,$email) = SlideCloud_retriveVal("SlideCloud_".$name."_email");
     Log3 $name,1,"$name: error reading e-mail address" if ($erre);
@@ -186,11 +195,11 @@ sub SlideCloud_Set($@)
     readingsSingleUpdate($hash,"state","an error occured, please see the log",1) if ($erre || $errp || !$email || !$sec);
     return SlideCloud_request($hash,"https://api.goslide.io/api/auth/login","SlideCloud_ParseLogin","{\"email\":\"$email\",\"password\": \"$sec\"}","POST");
   }
-  elsif ($cmd eq "logout")
+  elsif (lc $cmd eq "logout")
   {
     return SlideCloud_request($hash,"https://api.goslide.io/api/auth/logout","SlideCloud_ParseLogout",undef,"POST");
   }
-  elsif ($cmd eq "holiday_mode")
+  elsif (lc $cmd eq "holiday_mode")
   {
     my $mode = $value eq "on" ? "true" : "false";
     my $data = ReadingsVal($name,"holiday_routines",undef);
@@ -351,7 +360,31 @@ sub SlideCloud_ParseSlides($)
     {
       my @slides = $dec->{slides};
       my $msg = "Got Slides info";
-      $msg = "No Slides found" if (ref($dec->{slides}) ne "HASH");
+      # Debug @slides;
+      # Debug $dec->{slides}[0]->{device_name};
+      if (@slides)
+      {
+        foreach (@slides)
+        {
+          my $cid     = $_->[0]->{id};
+          my $cname   = $_->[0]->{device_name};
+          my $csetup  = $_->[0]->{slide_setup};
+          my $ctype   = $_->[0]->{curtain_type};
+          my $did     = $_->[0]->{device_id};
+          my $hid     = $_->[0]->{household_id};
+          my $zid     = $_->[0]->{zone_id};
+          my $tg      = $_->[0]->{touch_go};
+          Debug "cid: $cid, cname: $cname, csetup: $csetup, ctype: $ctype, did: $did, hid: $hid, zid: $zid, tg: $tg";
+        }
+      }
+      elsif (ref($dec->{slides}[0]) ne "HASH")
+      {
+        $msg = "No Slides found";
+      }
+      else
+      {
+        $msg = "Unknown error";
+      }
       readingsBeginUpdate($hash);
       readingsBulkUpdate($hash,"state",$msg);
       readingsEndUpdate($hash,1);
@@ -380,6 +413,44 @@ sub SlideCloud_ParseHoliday($)
     CommandGet(undef,"$name household");
     # my $dec = eval {decode_json($data)};
   }
+}
+
+sub SlideCloud_Attr(@)
+{
+  my ($cmd,$name,$attr_name,$attr_value) = @_;
+  my $hash  = $defs{$name};
+  my $err;
+  if ($cmd eq "set")
+  {
+    if ($attr_name eq "disabled")
+    {
+      $err = "must be 1 to disable or delete the attribute to enable" if ($attr_value !~ /^1$/);
+    }
+    elsif ($attr_name eq "disabledForIntervals")
+    {
+    }
+    elsif ($attr_name eq "interval")
+    {
+      $err = "must be an integer (<=86400) for seconds" if ($attr_value !~ /^(\d{1,5})$/ || $1 > 86400);
+    }
+  }
+  else
+  {
+    #
+  }
+  return $err ? $err : undef;
+}
+
+sub SlideCloud_Notify($$) {
+
+    my ($hash,$dev) = @_;
+    my $name = $hash->{NAME};
+    return if (IsDisabled($name));
+    my $devname = $dev->{NAME};
+    my $devtype = $dev->{TYPE};
+    my $events  = deviceEvents( $dev, 1 );
+    return if (!$events);
+    return;
 }
 
 sub SlideCloud_storeVal($$)
