@@ -47,8 +47,7 @@ sub Slide_Define($$)
   return "Usage: define <name> Slide <ID>" if (@args != 3);
   $hash->{DEVICEID}   = $id;
   $hash->{VERSION}    = $version;
-  $hash->{NOTIFYDEV}  = "global,$name";
-  my $iodev = $modules{GardenaSmartBridge}{defptr}{BRIDGE}->{NAME};
+  my $iodev = $modules{SlideCloud}{defptr}{BRIDGE}->{NAME};
   if ($init_done && !defined $hash->{OLDDEF})
   {
     $attr{$name}{IODev}       = $iodev;
