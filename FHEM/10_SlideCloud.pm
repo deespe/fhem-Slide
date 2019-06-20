@@ -14,7 +14,6 @@ use warnings;
 use POSIX;
 use JSON;
 use HttpUtils;
-use Data::Dumper;
 
 my $version = "0.1.0";
 
@@ -157,6 +156,7 @@ sub SlideCloud_Set($@)
 {
   my ($hash,$name,@aa) = @_;
   my ($cmd,@args) = @aa;
+  $cmd = lc $cmd;
   my $value = (defined($args[0])) ? $args[0] : undef;
   return if (IsDisabled($name) && $cmd ne "?");
   return "\"set $name $cmd\" needs two arguments at maximum" if (@aa > 2);
@@ -172,7 +172,7 @@ sub SlideCloud_Set($@)
     push @par,"holiday_mode:on,off";
     push @par,"autocreate";
   }
-  if ($cmd =~ /^password|email$/i)
+  if ($cmd =~ /^password|email$/)
   {
     return "set $cmd needs a value..." if (!$value);
     $err = "";
@@ -187,7 +187,7 @@ sub SlideCloud_Set($@)
     Log3 $name,1,$err;
     return $err;
   }
-  elsif (lc $cmd eq "login")
+  elsif ($cmd eq "login")
   {
     my ($erre,$email) = SlideCloud_retriveVal("SlideCloud_".$name."_email");
     Log3 $name,1,"$name: error reading e-mail address" if ($erre);
@@ -198,15 +198,15 @@ sub SlideCloud_Set($@)
     readingsSingleUpdate($hash,"state","an error occured, please see the log",1) if ($erre || $errp || !$email || !$sec);
     return SlideCloud_request($hash,"https://api.goslide.io/api/auth/login","SlideCloud_ParseLogin","{\"email\":\"$email\",\"password\": \"$sec\"}","POST");
   }
-  elsif (lc $cmd eq "logout")
+  elsif ($cmd eq "logout")
   {
     return SlideCloud_request($hash,"https://api.goslide.io/api/auth/logout","SlideCloud_ParseLogout",undef,"POST");
   }
-  elsif (lc $cmd eq "autocreate")
+  elsif ($cmd eq "autocreate")
   {
     return "not implemented yet";
   }
-  elsif (lc $cmd eq "holiday_mode")
+  elsif ($cmd eq "holiday_mode")
   {
     my $mode = $value eq "on" ? "true" : "false";
     my $data = ReadingsVal($name,"holiday_routines",undef);
@@ -252,25 +252,25 @@ sub SlideCloud_ParseLogin($)
   elsif ($data)
   {
     Log3 $name,5,"url ".$param->{url}." returned: $data";
-    my $dec = eval {decode_json($data)};
-    if ($dec->{access_token})
+    my $decoded = eval {decode_json($data)};
+    if ($decoded->{access_token})
     {
-      my $err = SlideCloud_storeVal("SlideCloud_".$name."_token",$dec->{access_token});
+      my $err = SlideCloud_storeVal("SlideCloud_".$name."_token",$decoded->{access_token});
       return "$err - not able to store token" if ($err);
       readingsBeginUpdate($hash);
-      readingsBulkUpdate($hash,".token_type",$dec->{token_type});
-      readingsBulkUpdate($hash,".expires_at",$dec->{expires_at});
+      readingsBulkUpdate($hash,".token_type",$decoded->{token_type});
+      readingsBulkUpdate($hash,".expires_at",$decoded->{expires_at});
       readingsBulkUpdate($hash,"state","login successful");
       readingsEndUpdate($hash,1);
       CommandGet(undef,"$name update");
       return;
     }
-    elsif ($dec->{message})
+    elsif ($decoded->{message})
     {
-      $err = $dec->{message};
-      $err .= " - wrong e-mail address or wrong password" if (!$dec->{errors});
-      $err .= " ".$dec->{errors}->{email}[0] if ($dec->{errors}->{email}[0]);
-      $err .= " ".$dec->{errors}->{password}[0] if ($dec->{errors}->{password}[0]);
+      $err = $decoded->{message};
+      $err .= " - wrong e-mail address or wrong password" if (!$decoded->{errors});
+      $err .= " ".$decoded->{errors}->{email}[0] if ($decoded->{errors}->{email}[0]);
+      $err .= " ".$decoded->{errors}->{password}[0] if ($decoded->{errors}->{password}[0]);
       readingsSingleUpdate($hash,"state",$err,1);
       Log3 $name,1,"$name: $err";
     }
@@ -294,10 +294,10 @@ sub SlideCloud_ParseLogout($)
   elsif ($data)
   {
     Log3 $name,5,"url ".$param->{url}." returned: $data";
-    my $dec = eval {decode_json($data)};
-    if ($dec->{message})
+    my $decoded = eval {decode_json($data)};
+    if ($decoded->{message})
     {
-      if ($dec->{message} eq "Successfully logged out")
+      if ($decoded->{message} eq "Successfully logged out")
       {
         CommandDeleteReading(undef,"$name .*");
         $err = SlideCloud_storeVal("SlideCloud_".$name."_token",undef);
@@ -308,7 +308,7 @@ sub SlideCloud_ParseLogout($)
           return $m;
         }
       }
-      readingsSingleUpdate($hash,"state",$dec->{message},1);
+      readingsSingleUpdate($hash,"state",$decoded->{message},1);
     }
     else
     {
@@ -331,8 +331,8 @@ sub SlideCloud_ParseHousehold($)
   elsif ($data)
   {
     Log3 $name,5,"url ".$param->{url}." returned: $data";
-    my $dec = eval {decode_json($data)};
-    $data = $dec->{data};
+    my $decoded = eval {decode_json($data)};
+    $data = $decoded->{data};
     readingsBeginUpdate($hash);
     readingsBulkUpdate($hash,"id",$data->{id});
     readingsBulkUpdate($hash,"name",$data->{name});
@@ -351,7 +351,7 @@ sub SlideCloud_ParseHousehold($)
 
 sub SlideCloud_ParseSlides($)
 {
-  my ($param,$err,$data) = @_;
+  my ($param,$err,$json) = @_;
   my $hash = $param->{hash};
   my $name = $hash->{NAME};
   if ($err)
@@ -359,33 +359,35 @@ sub SlideCloud_ParseSlides($)
     Log3 $name,3,"error while requesting ".$param->{url}." - $err";
     readingsSingleUpdate($hash,"state","ERROR - $err",1);
   }
-  elsif ($data)
+  elsif ($json)
   {
-    Log3 $name,5,"url ".$param->{url}." returned: $data";
-    my $dec = eval {decode_json($data)};
-    if ($dec->{slides})
+    Log3 $name,5,"url ".$param->{url}." returned: $json";
+    my $decoded = eval {decode_json($json)};
+    if ($decoded->{slides})
     {
-      my @slides = $dec->{slides};
+      my @slides = @{$decoded->{slides}};
       my $msg = "Got Slides info";
-      # Debug @slides;
-      # Debug $dec->{slides}[0]->{device_name};
       if (@slides)
       {
-        Dumper @slides;
         foreach (@slides)
         {
-          my $cid     = $_->[0]->{id};
-          my $cname   = $_->[0]->{device_name};
-          my $csetup  = $_->[0]->{slide_setup};
-          my $ctype   = $_->[0]->{curtain_type};
-          my $did     = $_->[0]->{device_id};
-          my $hid     = $_->[0]->{household_id};
-          my $zid     = $_->[0]->{zone_id};
-          my $tg      = $_->[0]->{touch_go};
-          Debug "cid: $cid, cname: $cname, csetup: $csetup, ctype: $ctype, did: $did, hid: $hid, zid: $zid, tg: $tg";
+          my $cid     = $_->{id};
+          my $cname   = $_->{device_name};
+          my $ctype   = $_->{curtain_type};
+          my $did     = $_->{device_id};
+          my $hid     = $_->{household_id};
+          my $zid     = $_->{zone_id};
+          my $tg      = $_->{touch_go};
+          my $pos     = $_->{device_info}->{pos};
+          my @rou     = @{$_->{routines}};
+          Debug "cid: $cid, cname: $cname, ctype: $ctype, did: $did, hid: $hid, zid: $zid, tg: $tg, pos: $pos";
+          foreach my $r (@rou)
+          {
+            Debug "id: ".$r->{id}.", action: ".$r->{action}.", at: ".$r->{at}.", enable: ".$r->{enable}.", offset: ".$r->{payload}->{offset}.", pos: ".$r->{payload}->{pos};
+          }
         }
       }
-      elsif (ref($dec->{slides}[0]) ne "HASH")
+      elsif (ref($decoded->{slides}[0]) ne "HASH")
       {
         $msg = "No Slides found";
       }
@@ -406,20 +408,18 @@ sub SlideCloud_ParseSlides($)
 
 sub SlideCloud_ParseHoliday($)
 {
-  my ($param,$err,$data) = @_;
+  my ($param,$err,$json) = @_;
   my $hash = $param->{hash};
   my $name = $hash->{NAME};
   if ($err)
   {
     Log3 $name,3,"error while requesting ".$param->{url}." - $err";
     readingsSingleUpdate($hash,"state","ERROR - $err",1);
-    # CommandDeleteReading(undef,"$name household_.*");
   }
-  elsif ($data)
+  elsif ($json)
   {
-    Log3 $name,5,"url ".$param->{url}." returned: $data";
+    Log3 $name,5,"url ".$param->{url}." returned: $json";
     CommandGet(undef,"$name household");
-    # my $dec = eval {decode_json($data)};
   }
 }
 
