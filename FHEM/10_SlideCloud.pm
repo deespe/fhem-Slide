@@ -170,7 +170,7 @@ sub SlideCloud_Set($@)
   {
     push @par,"logout:noArg";
     push @par,"holiday_mode:on,off";
-    push @par,"autocreate";
+    push @par,"autocreate:noArg";
   }
   if ($cmd =~ /^password|email$/)
   {
