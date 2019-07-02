@@ -297,7 +297,7 @@ sub SlideCloud_ParseLogout($)
     my $decoded = eval {decode_json($data)};
     if ($decoded->{message})
     {
-      if ($decoded->{message} eq "Successfully logged out")
+      if ($decoded->{message} =~ /^(Successfully.logged.out|Unauthenticated.)$/)
       {
         CommandDeleteReading(undef,"$name .*");
         $err = SlideCloud_storeVal("SlideCloud_".$name."_token",undef);
@@ -307,8 +307,12 @@ sub SlideCloud_ParseLogout($)
           Log3 $name,1,$m;
           return $m;
         }
+        readingsSingleUpdate($hash,"state","ERROR - Successfully logged out",1);
       }
-      readingsSingleUpdate($hash,"state",$decoded->{message},1);
+      else
+      {
+        readingsSingleUpdate($hash,"state","ERROR - ".$decoded->{message},1);
+      }
     }
     else
     {
@@ -332,19 +336,30 @@ sub SlideCloud_ParseHousehold($)
   {
     Log3 $name,5,"url ".$param->{url}." returned: $data";
     my $decoded = eval {decode_json($data)};
-    $data = $decoded->{data};
     readingsBeginUpdate($hash);
-    readingsBulkUpdate($hash,"id",$data->{id});
-    readingsBulkUpdate($hash,"name",$data->{name});
-    readingsBulkUpdate($hash,"address",$data->{address});
-    readingsBulkUpdate($hash,"lat",$data->{lat});
-    readingsBulkUpdate($hash,"lon",$data->{lon});
-    readingsBulkUpdate($hash,"xs_code",$data->{xs_code});
-    readingsBulkUpdate($hash,"holiday_mode",$data->{holiday_mode} ? "on" : "off");
-    readingsBulkUpdate($hash,"holiday_routines",encode_json($data->{holiday_routines}));
-    readingsBulkUpdate($hash,"created_at",$data->{created_at});
-    readingsBulkUpdate($hash,"updated_at",$data->{updated_at});
-    readingsBulkUpdate($hash,"state","Got household info");
+    if ($decoded->{data})
+    {
+      $data = $decoded->{data};
+      readingsBulkUpdate($hash,"id",$data->{id});
+      readingsBulkUpdate($hash,"name",$data->{name});
+      readingsBulkUpdate($hash,"address",$data->{address});
+      readingsBulkUpdate($hash,"lat",$data->{lat});
+      readingsBulkUpdate($hash,"lon",$data->{lon});
+      readingsBulkUpdate($hash,"xs_code",$data->{xs_code});
+      readingsBulkUpdate($hash,"holiday_mode",$data->{holiday_mode} ? "on" : "off");
+      readingsBulkUpdate($hash,"holiday_routines",encode_json($data->{holiday_routines}));
+      readingsBulkUpdate($hash,"created_at",$data->{created_at});
+      readingsBulkUpdate($hash,"updated_at",$data->{updated_at});
+      readingsBulkUpdate($hash,"state","Got household info");
+    }
+    elsif ($decoded->{message})
+    {
+      readingsBulkUpdate($hash,"state","ERROR - ".$decoded->{message});
+    }
+    else
+    {
+      readingsBulkUpdate($hash,"state","ERROR - unknown error");
+    }
     readingsEndUpdate($hash,1);
   }
 }
@@ -393,11 +408,13 @@ sub SlideCloud_ParseSlides($)
       }
       else
       {
-        $msg = "Unknown error";
+        $msg = "ERROR - Unknown error";
       }
-      readingsBeginUpdate($hash);
-      readingsBulkUpdate($hash,"state",$msg);
-      readingsEndUpdate($hash,1);
+      readingsSingleUpdate($hash,"state",$msg,1);
+    }
+    elsif ($decoded->{message})
+    {
+      readingsSingleUpdate($hash,"state","ERROR - ".$decoded->{message},1);
     }
     else
     {
