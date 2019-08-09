@@ -137,6 +137,13 @@ sub Slide_Attr(@)
   return $err ? $err : undef;
 }
 
+sub Slide_Parse($$)
+{
+  my($hash,$result) = @_;
+  my $name = $hash->{NAME};
+  return;
+}
+
 1;
 
 =pod

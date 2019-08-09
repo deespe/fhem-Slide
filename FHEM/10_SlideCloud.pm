@@ -224,6 +224,11 @@ sub SlideCloud_request($$$;$$)
   my ($hash,$url,$callback,$data,$method) = @_;
   $method = "GET" if (!$method);
   my $name = $hash->{NAME};
+  if (IsDisabled($name))
+  {
+    readingsSingleUpdateIfChanged($hash,"state","inactive",1);
+    return undef;
+  }
   my ($err,$token) = SlideCloud_retriveVal("SlideCloud_".$name."_token");
   return "$err - not able to read token" if ($err);
   my $param = {
@@ -456,7 +461,7 @@ sub SlideCloud_Notify($$)
   my $name = $hash->{NAME};
   if (IsDisabled($name))
   {
-    readingsSingleUpdate($hash,"state","disabled",1);
+    readingsSingleUpdateIfChanged($hash,"state","inactive",1);
     return undef;
   }
   my $devname = $dev->{NAME};
@@ -466,6 +471,62 @@ sub SlideCloud_Notify($$)
   my $events  = deviceEvents( $dev, 1 );
   return if (!$events);
   return;
+}
+
+sub SlideCloud_autocreate($;$)
+{
+  my ($hash,$force)= @_;
+  my $name = $hash->{NAME};
+  if (!$force)
+  {
+    foreach my $d (keys %defs)
+    {
+      next if ($defs{$d}{TYPE} ne "autocreate");
+      return undef if (AttrVal($defs{$d}{NAME},"disable",undef));
+    }
+  }
+  my $autocreated = 0;
+
+
+  
+  if ($autocreated)
+  {
+    Log3 $name, 2, "$name: autocreated $autocreated devices";
+    CommandSave(undef,undef) if (AttrVal("autocreate","autosave",1));
+  }
+  return "created $autocreated devices";
+}
+
+sub SlideCloud_dispatch($$$;$)
+{
+  my ($param,$err,$data,$json) = @_;
+  my $hash = $param->{hash};
+  my $name = $hash->{NAME};
+  if ($err)
+  {
+    Log3 $name,2,"$name: http request failed: $err";
+  }
+  elsif ($data || $json)
+  {
+    if (!$data && !$json)
+    {
+      Log3 $name,2,"$name: empty answer received";
+      return undef;
+    }
+    elsif ($data && $data !~ m/^[\[{].*[\]}]$/ )
+    {
+      Log3 $name,2,"$name: invalid json detected: $data";
+      return undef;
+    }
+    my $queryAfterSet = AttrVal($name,"queryAfterSet",1);
+    if (!$json)
+    {
+      $json = eval { decode_json($data) };
+      Log3 $name,2,"$name: json error: $@ in $data" if ($@);
+    }
+    return undef if (!$json);
+    my $type = $param->{type};
+  }
 }
 
 sub SlideCloud_Read($)
